@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  claude-cli:
+    build: .
+    volumes:
+      - .:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=${DISPLAY}
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    tty: true
+    command: bash
+    
+  clauveo-app:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - "1420:1420"
+    environment:
+      - NODE_ENV=development
+    command: bash -c "cd /app && bun install && bun run dev"

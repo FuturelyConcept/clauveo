@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { ProcessedMetadata } from './videoProcessor'
 
 interface AIResponse {
@@ -8,6 +9,8 @@ interface AIResponse {
   recommendations: string[]
 }
 
+export type AIProvider = 'openai' | 'gemini' | 'claude'
+
 const getOpenAIClient = () => {
   const apiKey = localStorage.getItem('openai_api_key')
   if (!apiKey) {
@@ -16,8 +19,39 @@ const getOpenAIClient = () => {
   return new OpenAI({ apiKey, dangerouslyAllowBrowser: true })
 }
 
+const getGeminiClient = () => {
+  const apiKey = localStorage.getItem('gemini_api_key')
+  if (!apiKey) {
+    throw new Error('Gemini API key not configured')
+  }
+  return new GoogleGenerativeAI(apiKey)
+}
+
+const getSelectedAIProvider = (): AIProvider => {
+  return (localStorage.getItem('ai_provider') as AIProvider) || 'openai'
+}
+
 export const generatePrompt = (metadata: ProcessedMetadata): string => {
   const { user_context, visual_context, technical_context } = metadata
+  
+  // Handle calculation requests differently
+  if (user_context.request_type === 'calculation') {
+    return `You are a helpful assistant that can perform calculations.
+
+## User Request
+The user is asking for help with a calculation: "${user_context.transcript}"
+
+## Text Content Detected
+${visual_context.text_content.join(', ')}
+
+## Your Task
+1. Identify the mathematical expression or calculation needed
+2. Perform the calculation accurately
+3. Provide the answer clearly and directly
+4. If relevant, show the calculation steps
+
+Please provide a direct, clear answer to the mathematical question. Keep your response concise and focused on the calculation.`
+  }
   
   return `You are a senior developer helping to analyze a screen recording and provide code solutions.
 
@@ -54,29 +88,114 @@ Please provide actionable, specific code examples that can be directly implement
 Format your response in markdown with clear sections and code blocks.`
 }
 
+const generateOpenAIResponse = async (metadata: ProcessedMetadata): Promise<string> => {
+  const openai = getOpenAIClient()
+  const prompt = generatePrompt(metadata)
+  
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o-mini', // Using the more cost-effective model
+    messages: [
+      {
+        role: 'system',
+        content: 'You are an expert software developer and code reviewer. Provide practical, actionable solutions to development issues. Always include specific code examples and explain the reasoning behind your recommendations.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    max_tokens: 2000,
+    temperature: 0.7
+  })
+  
+  return response.choices[0]?.message?.content || 'No response generated'
+}
+
+const generateGeminiResponse = async (metadata: ProcessedMetadata): Promise<string> => {
+  const genAI = getGeminiClient()
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  
+  const prompt = generatePrompt(metadata)
+  const systemPrompt = 'You are an expert software developer and code reviewer. Provide practical, actionable solutions to development issues. Always include specific code examples and explain the reasoning behind your recommendations.'
+  
+  const fullPrompt = `${systemPrompt}\n\n${prompt}`
+  
+  const result = await model.generateContent(fullPrompt)
+  const response = await result.response
+  return response.text()
+}
+
+export const analyzeFrameWithVision = async (frameBase64: string, provider: AIProvider = 'gemini'): Promise<string> => {
+  try {
+    if (provider === 'gemini') {
+      const genAI = getGeminiClient()
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      
+      // Remove data URL prefix to get just base64
+      const base64Data = frameBase64.replace(/^data:image\/[a-z]+;base64,/, '')
+      
+      const result = await model.generateContent([
+        "Analyze this screenshot and extract ALL text content accurately. Pay special attention to mathematical expressions, numbers, and symbols. Describe what you see in detail.",
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: base64Data
+          }
+        }
+      ])
+      
+      const response = await result.response
+      return response.text()
+    } else if (provider === 'openai') {
+      const openai = getOpenAIClient()
+      
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this screenshot and extract ALL text content accurately. Pay special attention to mathematical expressions, numbers, and symbols. Describe what you see in detail."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: frameBase64
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 1000
+      })
+      
+      return response.choices[0]?.message?.content || 'No analysis available'
+    }
+    
+    throw new Error(`Vision analysis not supported for provider: ${provider}`)
+    
+  } catch (error) {
+    console.error('Error analyzing frame with vision:', error)
+    return `Vision analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+  }
+}
+
 export const generateAIResponse = async (metadata: ProcessedMetadata): Promise<string> => {
   try {
-    const openai = getOpenAIClient()
-    const prompt = generatePrompt(metadata)
+    const provider = getSelectedAIProvider()
     
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', // Using the more cost-effective model
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert software developer and code reviewer. Provide practical, actionable solutions to development issues. Always include specific code examples and explain the reasoning behind your recommendations.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      max_tokens: 2000,
-      temperature: 0.7
-    })
-    
-    return response.choices[0]?.message?.content || 'No response generated'
-    
+    switch (provider) {
+      case 'openai':
+        return await generateOpenAIResponse(metadata)
+      case 'gemini':
+        return await generateGeminiResponse(metadata)
+      case 'claude':
+        throw new Error('Claude integration not yet implemented')
+      default:
+        throw new Error(`Unknown AI provider: ${provider}`)
+    }
   } catch (error) {
     console.error('Error generating AI response:', error)
     throw new Error(`Failed to generate AI response: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -85,25 +204,35 @@ export const generateAIResponse = async (metadata: ProcessedMetadata): Promise<s
 
 export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   try {
-    const openai = getOpenAIClient()
+    const provider = getSelectedAIProvider()
     
-    // Convert blob to file for OpenAI API
-    const audioFile = new File([audioBlob], 'audio.wav', { type: audioBlob.type })
-    
-    const response = await openai.audio.transcriptions.create({
-      file: audioFile,
-      model: 'whisper-1',
-      language: 'en',
-      prompt: 'The user is explaining a development issue, bug, or feature request for their application.'
-    })
-    
-    return response.text
+    // Only OpenAI has Whisper API for audio transcription
+    // For other providers, we'll need to use OpenAI for transcription or skip it
+    if (provider === 'openai') {
+      const openai = getOpenAIClient()
+      
+      // Convert blob to file for OpenAI API
+      const audioFile = new File([audioBlob], 'audio.wav', { type: audioBlob.type })
+      
+      const response = await openai.audio.transcriptions.create({
+        file: audioFile,
+        model: 'whisper-1',
+        language: 'en',
+        prompt: 'The user is explaining their screen recording content, which may include math problems, development issues, or questions.'
+      })
+      
+      return response.text
+    } else {
+      // For Gemini and other providers, skip audio transcription for now
+      console.log(`Audio transcription not available for ${provider} provider. Skipping audio processing.`)
+      return 'Audio transcription skipped - not available for current AI provider'
+    }
     
   } catch (error) {
     console.error('Error transcribing audio:', error)
     
     // Fallback to a default transcript if transcription fails
-    return 'User is explaining an issue with their application and needs help fixing it.'
+    return 'Audio transcription failed'
   }
 }
 
@@ -125,6 +254,21 @@ export const testOpenAIConnection = async (apiKey: string): Promise<boolean> => 
   }
 }
 
+export const testGeminiConnection = async (apiKey: string): Promise<boolean> => {
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    
+    const result = await model.generateContent('Test')
+    const response = await result.response
+    return response.text().length > 0
+    
+  } catch (error) {
+    console.error('Gemini connection test failed:', error)
+    return false
+  }
+}
+
 export const testClaudeConnection = async (apiKey: string): Promise<boolean> => {
   try {
     // This would be implemented when Claude API is integrated
@@ -134,6 +278,19 @@ export const testClaudeConnection = async (apiKey: string): Promise<boolean> => 
   } catch (error) {
     console.error('Claude connection test failed:', error)
     return false
+  }
+}
+
+export const testAIConnection = async (provider: AIProvider, apiKey: string): Promise<boolean> => {
+  switch (provider) {
+    case 'openai':
+      return testOpenAIConnection(apiKey)
+    case 'gemini':
+      return testGeminiConnection(apiKey)
+    case 'claude':
+      return testClaudeConnection(apiKey)
+    default:
+      return false
   }
 }
 

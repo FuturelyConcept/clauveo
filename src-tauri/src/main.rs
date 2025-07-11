@@ -17,7 +17,9 @@ fn main() {
             stop_recording_session,
             get_recording_status,
             process_recording_metadata,
-            cleanup_recording_files
+            cleanup_recording_files,
+            send_to_claude_cli,
+            check_claude_cli_installed
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

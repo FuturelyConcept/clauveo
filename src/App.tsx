@@ -3,12 +3,15 @@ import { VideoIcon, Settings, Info } from 'lucide-react'
 import RecordingView from './components/RecordingView'
 import SettingsView from './components/SettingsView'
 import AboutView from './components/AboutView'
+import ClauveoInterface from './components/ClauveoInterface'
 
 function App() {
-  const [activeView, setActiveView] = useState('recording')
+  const [activeView, setActiveView] = useState('clauveo')
 
   const renderView = () => {
     switch (activeView) {
+      case 'clauveo':
+        return <ClauveoInterface />
       case 'recording':
         return <RecordingView />
       case 'settings':
@@ -16,7 +19,7 @@ function App() {
       case 'about':
         return <AboutView />
       default:
-        return <RecordingView />
+        return <ClauveoInterface />
     }
   }
 
@@ -31,6 +34,18 @@ function App() {
         
         <nav className="flex flex-col space-y-2">
           <button
+            onClick={() => setActiveView('clauveo')}
+            className={`flex items-center space-x-3 p-3 rounded-lg text-left transition-colors ${
+              activeView === 'clauveo' 
+                ? 'bg-accent text-accent-foreground' 
+                : 'hover:bg-accent/50'
+            }`}
+          >
+            <VideoIcon className="h-5 w-5" />
+            <span>Clauveo Interface</span>
+          </button>
+          
+          <button
             onClick={() => setActiveView('recording')}
             className={`flex items-center space-x-3 p-3 rounded-lg text-left transition-colors ${
               activeView === 'recording' 
@@ -39,7 +54,7 @@ function App() {
             }`}
           >
             <VideoIcon className="h-5 w-5" />
-            <span>Recording</span>
+            <span>Recording (Legacy)</span>
           </button>
           
           <button
@@ -69,7 +84,7 @@ function App() {
         
         <div className="mt-auto">
           <div className="text-xs text-muted-foreground p-2">
-            Privacy-first screen recording
+            Privacy-first AI coding assistant with video recording
           </div>
         </div>
       </div>

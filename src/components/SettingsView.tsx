@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { Eye, EyeOff, Key, Save, TestTube } from 'lucide-react'
+import { Eye, EyeOff, Key, Save, TestTube, Cpu } from 'lucide-react'
+import { testAIConnection, type AIProvider } from '../lib/aiClient'
 
 const SettingsView: React.FC = () => {
   const [settings, setSettings] = useState({
     openaiApiKey: '',
     claudeApiKey: '',
+    geminiApiKey: '',
+    aiProvider: 'openai' as AIProvider,
     defaultRecordingDuration: 60,
     autoDeleteFiles: true,
     showAdvancedSettings: false,
@@ -14,6 +17,8 @@ const SettingsView: React.FC = () => {
   useEffect(() => {
     const savedOpenAIKey = localStorage.getItem('openai_api_key') || ''
     const savedClaudeKey = localStorage.getItem('claude_api_key') || ''
+    const savedGeminiKey = localStorage.getItem('gemini_api_key') || ''
+    const savedAIProvider = (localStorage.getItem('ai_provider') as AIProvider) || 'openai'
     const savedSettings = localStorage.getItem('clauveo_settings')
     
     let parsedSettings = {}
@@ -29,13 +34,16 @@ const SettingsView: React.FC = () => {
       ...prev,
       openaiApiKey: savedOpenAIKey,
       claudeApiKey: savedClaudeKey,
+      geminiApiKey: savedGeminiKey,
+      aiProvider: savedAIProvider,
       ...parsedSettings
     }))
   }, [])
   
   const [showOpenAIKey, setShowOpenAIKey] = useState(false)
   const [showClaudeKey, setShowClaudeKey] = useState(false)
-  const [testResults, setTestResults] = useState<{openai?: string, claude?: string}>({})
+  const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [testResults, setTestResults] = useState<{openai?: string, claude?: string, gemini?: string}>({})
 
   const handleSave = () => {
     // Save settings to localStorage
@@ -48,6 +56,12 @@ const SettingsView: React.FC = () => {
     if (settings.claudeApiKey) {
       localStorage.setItem('claude_api_key', settings.claudeApiKey)
     }
+    if (settings.geminiApiKey) {
+      localStorage.setItem('gemini_api_key', settings.geminiApiKey)
+    }
+    
+    // Save AI provider preference
+    localStorage.setItem('ai_provider', settings.aiProvider)
     
     // Save other settings
     localStorage.setItem('clauveo_settings', JSON.stringify({
@@ -59,27 +73,16 @@ const SettingsView: React.FC = () => {
     console.log('✅ Settings saved successfully!')
   }
 
-  const testOpenAIConnection = async () => {
+  const testConnection = async (provider: AIProvider, apiKey: string) => {
     try {
-      // Test OpenAI connection
-      setTestResults(prev => ({ ...prev, openai: 'testing' }))
-      // Simulate API test
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      setTestResults(prev => ({ ...prev, openai: 'success' }))
+      setTestResults(prev => ({ ...prev, [provider]: 'testing' }))
+      const isConnected = await testAIConnection(provider, apiKey)
+      setTestResults(prev => ({ 
+        ...prev, 
+        [provider]: isConnected ? 'success' : 'error' 
+      }))
     } catch (error) {
-      setTestResults(prev => ({ ...prev, openai: 'error' }))
-    }
-  }
-
-  const testClaudeConnection = async () => {
-    try {
-      // Test Claude connection
-      setTestResults(prev => ({ ...prev, claude: 'testing' }))
-      // Simulate API test
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      setTestResults(prev => ({ ...prev, claude: 'success' }))
-    } catch (error) {
-      setTestResults(prev => ({ ...prev, claude: 'error' }))
+      setTestResults(prev => ({ ...prev, [provider]: 'error' }))
     }
   }
 
@@ -101,6 +104,26 @@ const SettingsView: React.FC = () => {
                 <Key className="h-5 w-5 mr-2" />
                 API Configuration
               </h3>
+              
+              {/* AI Provider Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2 flex items-center">
+                  <Cpu className="h-4 w-4 mr-2" />
+                  AI Provider
+                </label>
+                <select
+                  value={settings.aiProvider}
+                  onChange={(e) => setSettings(prev => ({ ...prev, aiProvider: e.target.value as AIProvider }))}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="openai">OpenAI (GPT-4)</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="claude">Claude (Coming Soon)</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Choose your preferred AI provider for code generation
+                </p>
+              </div>
               
               <div className="space-y-4">
                 <div>
@@ -126,7 +149,7 @@ const SettingsView: React.FC = () => {
                       </button>
                     </div>
                     <button
-                      onClick={testOpenAIConnection}
+                      onClick={() => testConnection('openai', settings.openaiApiKey)}
                       disabled={!settings.openaiApiKey || testResults.openai === 'testing'}
                       className="flex items-center space-x-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
                     >
@@ -146,6 +169,51 @@ const SettingsView: React.FC = () => {
                       {testResults.openai === 'success' && '✓ Connection successful'}
                       {testResults.openai === 'error' && '✗ Connection failed'}
                       {testResults.openai === 'testing' && '⏳ Testing connection...'}
+                    </div>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Google Gemini API Key
+                  </label>
+                  <div className="flex space-x-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showGeminiKey ? 'text' : 'password'}
+                        value={settings.geminiApiKey}
+                        onChange={(e) => setSettings(prev => ({ ...prev, geminiApiKey: e.target.value }))}
+                        placeholder="AIza..."
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGeminiKey(!showGeminiKey)}
+                        className="absolute right-2 top-2 p-1 text-muted-foreground hover:text-foreground"
+                      >
+                        {showGeminiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => testConnection('gemini', settings.geminiApiKey)}
+                      disabled={!settings.geminiApiKey || testResults.gemini === 'testing'}
+                      className="flex items-center space-x-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                    >
+                      <TestTube className="h-4 w-4" />
+                      <span>Test</span>
+                    </button>
+                  </div>
+                  {testResults.gemini && (
+                    <div className={`mt-2 text-sm ${
+                      testResults.gemini === 'success' 
+                        ? 'text-green-600' 
+                        : testResults.gemini === 'error' 
+                        ? 'text-red-600' 
+                        : 'text-yellow-600'
+                    }`}>
+                      {testResults.gemini === 'success' && '✓ Connection successful'}
+                      {testResults.gemini === 'error' && '✗ Connection failed'}
+                      {testResults.gemini === 'testing' && '⏳ Testing connection...'}
                     </div>
                   )}
                 </div>
@@ -172,7 +240,7 @@ const SettingsView: React.FC = () => {
                       </button>
                     </div>
                     <button
-                      onClick={testClaudeConnection}
+                      onClick={() => testConnection('claude', settings.claudeApiKey)}
                       disabled={!settings.claudeApiKey || testResults.claude === 'testing'}
                       className="flex items-center space-x-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
                     >

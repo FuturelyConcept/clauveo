@@ -30,7 +30,7 @@ export interface ProcessedMetadata {
   }
 }
 
-export const extractFrames = async (videoBlob: Blob, fps: number = 1): Promise<string[]> => {
+export const extractKeyFrames = async (videoBlob: Blob): Promise<string[]> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
     const canvas = document.createElement('canvas')
@@ -49,29 +49,42 @@ export const extractFrames = async (videoBlob: Blob, fps: number = 1): Promise<s
       canvas.height = video.videoHeight
       
       const frames: string[] = []
-      const interval = 1 / fps
-      let currentTime = 0
       
-      const captureFrame = () => {
-        if (currentTime >= video.duration) {
+      // Extract key frames: beginning, middle, and end
+      const keyTimePoints = [
+        0.1, // 0.1 seconds (beginning)
+        video.duration * 0.5, // Middle
+        video.duration * 0.9  // Near end
+      ].filter(time => time < video.duration)
+      
+      console.log(`Extracting ${keyTimePoints.length} key frames from ${video.duration}s video`)
+      
+      let frameIndex = 0
+      
+      const captureKeyFrame = () => {
+        if (frameIndex >= keyTimePoints.length) {
           URL.revokeObjectURL(video.src)
+          console.log(`Extracted ${frames.length} key frames`)
           resolve(frames)
           return
         }
         
-        video.currentTime = currentTime
+        const targetTime = keyTimePoints[frameIndex]
+        video.currentTime = targetTime
         
         video.onseeked = () => {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-          frames.push(canvas.toDataURL('image/jpeg', 0.8))
-          currentTime += interval
+          const frameData = canvas.toDataURL('image/jpeg', 0.9) // Higher quality
+          frames.push(frameData)
+          console.log(`Captured key frame ${frameIndex + 1} at ${targetTime.toFixed(1)}s`)
+          frameIndex++
           
           // Use setTimeout to prevent blocking
-          setTimeout(captureFrame, 10)
+          setTimeout(captureKeyFrame, 100)
         }
       }
       
-      captureFrame()
+      captureKeyFrame()
     }
     
     video.onerror = () => {
@@ -79,6 +92,11 @@ export const extractFrames = async (videoBlob: Blob, fps: number = 1): Promise<s
       reject(new Error('Failed to load video'))
     }
   })
+}
+
+// Keep the old function for backward compatibility
+export const extractFrames = async (videoBlob: Blob, fps: number = 1): Promise<string[]> => {
+  return extractKeyFrames(videoBlob) // Use key frames instead
 }
 
 export const extractAudioBlob = async (videoBlob: Blob): Promise<Blob> => {
@@ -139,8 +157,51 @@ export const performOCR = async (frames: string[], progressCallback?: (progress:
   
   for (let i = 0; i < framesToProcess.length; i++) {
     try {
-      const { data: { text } } = await worker.recognize(frames[i])
-      textResults.push(text.trim())
+      // Try multiple OCR approaches for better accuracy
+      const ocrResults: string[] = []
+      
+      // Approach 1: Standard OCR with math symbols
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789+-*/=.,ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ?!()[]{}',
+        tessedit_pageseg_mode: '6', // Single uniform block
+        preserve_interword_spaces: '1'
+      })
+      const { data: { text: text1 } } = await worker.recognize(frames[i])
+      ocrResults.push(text1.trim())
+      
+      // Approach 2: Numbers and symbols only
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789+-*/=?. ',
+        tessedit_pageseg_mode: '8', // Treat as single word
+        preserve_interword_spaces: '1'
+      })
+      const { data: { text: text2 } } = await worker.recognize(frames[i])
+      ocrResults.push(text2.trim())
+      
+      // Approach 3: Line-by-line processing
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789+-*/=.,ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ?!',
+        tessedit_pageseg_mode: '13', // Raw line, no word detection
+        preserve_interword_spaces: '1'
+      })
+      const { data: { text: text3 } } = await worker.recognize(frames[i])
+      ocrResults.push(text3.trim())
+      
+      // Choose the best result (longest non-empty text that contains math patterns)
+      let bestText = ''
+      for (const text of ocrResults) {
+        if (text && (text.length > bestText.length || /\d+\s*[+\-*/=]\s*\d+/.test(text))) {
+          bestText = text
+        }
+      }
+      
+      console.log(`OCR Frame ${i} approaches:`)
+      console.log(`  Standard: "${ocrResults[0]}"`)
+      console.log(`  Numbers: "${ocrResults[1]}"`)
+      console.log(`  Lines: "${ocrResults[2]}"`)
+      console.log(`  Best: "${bestText}"`)
+      
+      textResults.push(bestText)
       
       if (progressCallback) {
         progressCallback((i + 1) / framesToProcess.length)
@@ -152,15 +213,18 @@ export const performOCR = async (frames: string[], progressCallback?: (progress:
   }
   
   await worker.terminate()
+  console.log('OCR Final Results:', textResults.filter(t => t.length > 0))
   return textResults
 }
 
 export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   try {
-    // This would integrate with OpenAI Whisper
-    // For now, return a meaningful placeholder
+    // Import the actual transcription function from aiClient
+    const { transcribeAudio: aiTranscribe } = await import('./aiClient')
     console.log('Audio blob size:', audioBlob.size)
-    return "User is explaining a bug in their application and needs help fixing it"
+    const transcript = await aiTranscribe(audioBlob)
+    console.log('Audio transcript:', transcript)
+    return transcript
   } catch (error) {
     console.error('Audio transcription failed:', error)
     return "Audio transcription not available"
@@ -242,15 +306,30 @@ export const processVideoFrames = async (
   const startTime = Date.now()
   
   try {
-    // Extract frames (20% of progress)
+    // Extract key frames (20% of progress)
     progressCallback?.(0.1)
-    const frames = await extractFrames(videoBlob, 0.5) // 1 frame every 2 seconds for faster processing
+    const frames = await extractKeyFrames(videoBlob)
     progressCallback?.(0.2)
     
-    // Perform OCR (40% of progress)
-    const textResults = await performOCR(frames, (ocrProgress) => {
-      progressCallback?.(0.2 + (ocrProgress * 0.4))
-    })
+    // Analyze frames with vision API (40% of progress)
+    const textResults: string[] = []
+    const { analyzeFrameWithVision } = await import('./aiClient')
+    const provider = (localStorage.getItem('ai_provider') as any) || 'gemini'
+    
+    console.log(`Analyzing ${frames.length} key frames with ${provider} vision API`)
+    
+    for (let i = 0; i < frames.length; i++) {
+      try {
+        const analysis = await analyzeFrameWithVision(frames[i], provider)
+        textResults.push(analysis)
+        console.log(`Frame ${i + 1} vision analysis:`, analysis.substring(0, 200) + '...')
+        
+        progressCallback?.(0.2 + ((i + 1) / frames.length) * 0.4)
+      } catch (error) {
+        console.warn(`Vision analysis failed for frame ${i}:`, error)
+        textResults.push('')
+      }
+    }
     progressCallback?.(0.6)
     
     // Extract audio and transcribe (20% of progress)
@@ -265,24 +344,39 @@ export const processVideoFrames = async (
     
     progressCallback?.(0.9)
     
+    // Debug logging for metadata generation
+    const combinedText = [transcript, ...textResults].join(' ')
+    const keywords = extractKeywords(combinedText)
+    const emotion = analyzeEmotion(transcript)
+    const requestType = classifyRequest(combinedText) // Use both transcript AND OCR text
+    const textContent = [...new Set(textResults.flatMap(text => 
+      text.split(/\s+/).filter(word => word.length > 2)
+    ))]
+    
+    console.log('Metadata generation debug:')
+    console.log('- Transcript:', transcript)
+    console.log('- Combined Text:', combinedText)
+    console.log('- Keywords:', keywords)
+    console.log('- Emotion:', emotion)
+    console.log('- Request Type:', requestType)
+    console.log('- Text Content:', textContent)
+    
     const metadata: ProcessedMetadata = {
       session_id: sessionId,
       timestamp: new Date().toISOString(),
       duration_seconds: Math.round((Date.now() - startTime) / 1000),
       user_context: {
         transcript,
-        intent_keywords: extractKeywords(transcript),
-        user_emotion: analyzeEmotion(transcript),
-        request_type: classifyRequest(transcript)
+        intent_keywords: keywords,
+        user_emotion: emotion,
+        request_type: requestType
       },
       visual_context: {
         frames_analyzed: frames.length,
         ui_elements_detected: uiElements,
         color_palette: colorPalette,
         layout_analysis: 'web_application',
-        text_content: [...new Set(textResults.flatMap(text => 
-          text.split(/\s+/).filter(word => word.length > 2)
-        ))]
+        text_content: textContent
       },
       technical_context: {
         detected_framework: detectedFramework,
@@ -298,6 +392,84 @@ export const processVideoFrames = async (
     console.error('Error processing video:', error)
     throw error
   }
+}
+
+export const exportForClaudeCode = async (
+  videoBlob: Blob,
+  progressCallback?: (progress: number) => void
+): Promise<{frames: string[], transcript: string, instructions: string}> => {
+  const sessionId = uuidv4()
+  
+  try {
+    // Extract key frames
+    progressCallback?.(0.1)
+    const frames = await extractKeyFrames(videoBlob)
+    progressCallback?.(0.5)
+    
+    // Extract audio and transcribe (if OpenAI is available)
+    let transcript = 'Audio transcription not available'
+    try {
+      const audioBlob = await extractAudioBlob(videoBlob)
+      transcript = await transcribeAudio(audioBlob)
+    } catch (error) {
+      console.log('Audio transcription skipped:', error)
+    }
+    progressCallback?.(0.9)
+    
+    // Generate instructions for Claude Code
+    const instructions = `I recorded a ${Math.round(videoBlob.size / 1024)}KB video. Here's what I captured:
+
+**Audio Transcript:**
+"${transcript}"
+
+**Key Frames:**
+I'm attaching ${frames.length} key frames from the recording that show the relevant content.
+
+**Request:**
+Please analyze these images and my audio description to help me with what I was showing. Pay attention to any text, code, mathematical expressions, or UI elements visible in the screenshots.`
+
+    progressCallback?.(1.0)
+    
+    return {
+      frames,
+      transcript,
+      instructions
+    }
+    
+  } catch (error) {
+    console.error('Error exporting for Claude Code:', error)
+    throw error
+  }
+}
+
+export const downloadFramesAndTranscript = async (frames: string[], transcript: string, instructions: string) => {
+  const sessionId = uuidv4()
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  
+  // Download transcript and instructions as text file
+  const textContent = `${instructions}\n\n--- Raw Transcript ---\n${transcript}`
+  const textBlob = new Blob([textContent], { type: 'text/plain' })
+  const textUrl = URL.createObjectURL(textBlob)
+  
+  const textLink = document.createElement('a')
+  textLink.href = textUrl
+  textLink.download = `clauveo-session-${timestamp}.txt`
+  document.body.appendChild(textLink)
+  textLink.click()
+  document.body.removeChild(textLink)
+  URL.revokeObjectURL(textUrl)
+  
+  // Download each frame as image
+  frames.forEach((frameData, index) => {
+    const link = document.createElement('a')
+    link.href = frameData
+    link.download = `clauveo-frame-${index + 1}-${timestamp}.jpg`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  })
+  
+  console.log(`Downloaded ${frames.length} frames and transcript for Claude Code analysis`)
 }
 
 const extractKeywords = (text: string): string[] => {
@@ -317,6 +489,9 @@ const analyzeEmotion = (text: string): string => {
 }
 
 const classifyRequest = (text: string): string => {
+  // Check for math calculations first (highest priority)
+  if (/\d+\s*[+\-*/=]\s*\d+/i.test(text) || /\b(calculate|math|multiply|divide|add|subtract|equals|answer)\b/i.test(text)) return 'calculation'
+  
   if (/\b(bug|error|issue|problem|fix|broken|not working)\b/i.test(text)) return 'bug_fix'
   if (/\b(feature|add|create|new|enhancement|improve)\b/i.test(text)) return 'feature_request'
   if (/\b(refactor|optimize|clean|improve|better)\b/i.test(text)) return 'refactoring'

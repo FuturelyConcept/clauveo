@@ -1,5 +1,5 @@
 import React from 'react'
-import { Copy, RotateCcw, Download, ExternalLink } from 'lucide-react'
+import { Copy, RotateCcw, Download, ExternalLink, FileImage } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -7,11 +7,17 @@ interface ResultsViewProps {
   results: {
     metadata: any
     aiResponse: string
+    exportData?: {
+      frames: string[]
+      transcript: string
+      instructions: string
+    }
   }
   onTryAgain: () => void
+  onExportForClaudeCode?: () => void
 }
 
-const ResultsView: React.FC<ResultsViewProps> = ({ results, onTryAgain }) => {
+const ResultsView: React.FC<ResultsViewProps> = ({ results, onTryAgain, onExportForClaudeCode }) => {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
     // You could add a toast notification here
@@ -119,6 +125,16 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, onTryAgain }) => {
               <RotateCcw className="h-4 w-4" />
               <span>Record Another</span>
             </button>
+            
+            {onExportForClaudeCode && (
+              <button
+                onClick={onExportForClaudeCode}
+                className="flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <FileImage className="h-4 w-4" />
+                <span>Export for Claude Code</span>
+              </button>
+            )}
             
             <button
               onClick={() => window.open('https://claude.ai/code', '_blank')}

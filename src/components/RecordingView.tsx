@@ -127,8 +127,12 @@ const RecordingView: React.FC<RecordingViewProps> = () => {
       const aiResponse = await generateAIResponse(metadata)
       setProcessingProgress(1)
       
-      // Save results
-      setResults({ metadata, aiResponse })
+      // Also prepare export data for Claude Code
+      const { exportForClaudeCode } = await import('../lib/videoProcessor')
+      const exportData = await exportForClaudeCode(videoBlob)
+      
+      // Save results with export data
+      setResults({ metadata, aiResponse, exportData })
       setViewState('results')
       
       // Cleanup video blob (privacy)
@@ -147,12 +151,23 @@ const RecordingView: React.FC<RecordingViewProps> = () => {
     setProcessingProgress(0)
   }
 
+  const handleExportForClaudeCode = async () => {
+    if (results?.exportData) {
+      const { downloadFramesAndTranscript } = await import('../lib/videoProcessor')
+      await downloadFramesAndTranscript(
+        results.exportData.frames,
+        results.exportData.transcript,
+        results.exportData.instructions
+      )
+    }
+  }
+
   if (viewState === 'processing') {
     return <ProcessingView progress={processingProgress} />
   }
 
   if (viewState === 'results' && results) {
-    return <ResultsView results={results} onTryAgain={handleTryAgain} />
+    return <ResultsView results={results} onTryAgain={handleTryAgain} onExportForClaudeCode={handleExportForClaudeCode} />
   }
 
   return (
