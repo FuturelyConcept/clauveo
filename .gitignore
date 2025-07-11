@@ -1,0 +1,146 @@
+# Tauri + Rust + Bun/NPM Project .gitignore
+
+# ===== RUST / CARGO =====
+# Rust build outputs
+target/
+**/target/
+Cargo.lock
+*.rs.bk
+
+# ===== NODE.JS / BUN / NPM =====
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Package manager lock files
+package-lock.json
+yarn.lock
+bun.lockb
+
+# ===== FRONTEND BUILD =====
+# Vite build outputs
+dist/
+dist-ssr/
+build/
+
+# ===== TAURI SPECIFIC =====
+# Tauri build outputs
+src-tauri/target/
+src-tauri/WixTools/
+.tauri/
+
+# Tauri generated files
+src-tauri/tauri.conf.json.bak
+
+# ===== DEVELOPMENT FILES =====
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== LOGS =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+bun-debug.log*
+
+# ===== CACHE DIRECTORIES =====
+# Various cache directories
+.cache/
+.parcel-cache/
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+.nyc_output/
+.eslintcache
+.stylelintcache
+
+# ===== RUNTIME FILES =====
+# Process IDs
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage reports
+coverage/
+*.lcov
+
+# ===== TEMP / BUILD ARTIFACTS =====
+# Temporary folders
+tmp/
+temp/
+
+# Build artifacts
+*.tgz
+*.tar.gz
+
+# Optional directories
+jspm_packages/
+.npm
+.yarn-integrity
+
+# ===== TAURI BUNDLE OUTPUTS =====
+# Platform-specific bundles
+*.deb
+*.AppImage
+*.dmg
+*.app
+*.pkg
+*.msi
+*.exe
+
+# ===== LOCAL CONFIGURATION =====
+# Local configuration files
+*.local
+
+# ===== CLAUVEO SPECIFIC =====
+# Temporary recording files
+recordings/
+temp-recordings/
+
+# Local API keys (if stored in files)
+api-keys.json
+.env.keys
+
+# User-specific settings
+user-settings.json
+
+# ===== MISC =====
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux system files
+*~
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Archive files
+*.zip
+*.rar
+*.7z
